@@ -105,8 +105,8 @@ with tab1:
 
     with c2:
         st.subheader("Metadata")
-        meta_tbl = pd.DataFrame([{"field": k, "value": v} for k, v in metadata.items()])
-        st.dataframe(meta_tbl, hide_index=True, use_container_width=True)
+        meta_tbl = pd.DataFrame([{"field": k, "value": str(v)} for k, v in metadata.items()])
+        st.dataframe(meta_tbl, hide_index=True, width="stretch")
 
         st.subheader("Call intent details")
         st.write(sel_ctx.get("purpose", ""))
