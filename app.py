@@ -1,14 +1,11 @@
-"""Streamlit entrypoint for Pathfinder.
+import streamlit as st
 
-Netlify can't run this (it's a Python server app), but platforms like Streamlit Community Cloud,
-Render, Railway, Fly.io, etc. can.
+st.set_page_config(page_title="Pathfinder", layout="wide")
+st.write("Booting Pathfinder...")  # proves the app started
 
-Run locally:
-  pip install -r requirements.txt
-  streamlit run app.py
-
-Optional:
-  set CALL_INDEX_PATH=data/calls_index.csv
-"""
-
-import pathfinder_v4  # noqa: F401  (import runs the Streamlit app)
+try:
+    import pathfinder_v4  # noqa: F401
+except Exception as e:
+    st.error("App crashed during startup.")
+    st.exception(e)
+    st.stop()
