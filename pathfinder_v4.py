@@ -1,0 +1,304 @@
+import os
+import json
+import random
+import pandas as pd
+import streamlit as st
+
+from data_store import load_index, load_transcript, resolve_data_path, ms_to_mmss
+from artifacts import load_artifacts
+from classifier import classify_call
+from blocks import build_activity_blocks
+from evaluator import evaluate_blocks
+from reports import build_activity_report, build_agent_coaching_summary
+from narrative import generate_narrative
+
+from intent_batch import (
+    compute_aht_seconds,
+    transcript_to_one_cell,
+    discover_intent_tree,
+    classify_transcript_intent,
+    parse_uploaded_intent_tree,
+    build_mapping_excel,
+)
+
+# -------------------------
+# App shell
+# -------------------------
+st.set_page_config(page_title="Pathfinder", layout="wide")
+st.title("Pathfinder")
+
+INDEX_PATH = os.getenv("CALL_INDEX_PATH", "data/calls_index.csv")
+index_df = load_index(INDEX_PATH)
+
+tab1, tab2 = st.tabs(["Call Flow QA (single call)", "Intent Mapping (batch)"])
+
+# ============================================================
+# TAB 1 — Existing single-call QA (unchanged)
+# ============================================================
+with tab1:
+    with st.sidebar:
+        st.header("Single-call QA")
+
+        call_types = sorted(index_df["call_type"].dropna().unique().tolist())
+        call_type_filter = st.selectbox("Call intent", call_types, key="qa_call_type")
+
+        emp_filter = st.text_input("Agent emp_id (optional)", "", key="qa_emp")
+        search = st.text_input("Search (conversation_id / transcript_id)", "", key="qa_search")
+
+        fdf = index_df.copy()
+        fdf = fdf[fdf["call_type"] == call_type_filter]
+
+        if emp_filter.strip():
+            try:
+                fdf = fdf[fdf["emp_id"] == int(emp_filter.strip())]
+            except ValueError:
+                st.warning("emp_id must be an integer.")
+        if search.strip():
+            s = search.strip().lower()
+            fdf = fdf[
+                fdf["conversation_id"].astype(str).str.lower().str.contains(s)
+                | fdf["transcript_id"].astype(str).str.lower().str.contains(s)
+            ]
+
+        st.caption(f"{len(fdf):,} calls match filters")
+
+        fdf = fdf.copy()
+        fdf["label"] = (
+            fdf["conversation_id"].astype(str)
+            + " | "
+            + fdf["transcript_id"].astype(str)
+            + " | emp "
+            + fdf["emp_id"].astype(str)
+            + " | "
+            + fdf["call_type"].astype(str)
+        )
+        selected = st.selectbox("Call", fdf["label"].tolist()[:5000], key="qa_selected")
+
+        run_cls = st.button("1) Get activities", key="qa_run_cls")
+        run_blocks = st.button("2) Consolidate activities", key="qa_run_blocks")
+        run_eval = st.button("3) Evaluate call", key="qa_run_eval")
+        run_report = st.button("4) Create reports", key="qa_run_report")
+        run_narrative = st.button("5) Generate narrative (LLM)", key="qa_run_narr")
+
+    row = fdf.loc[fdf["label"] == selected].iloc[0].to_dict()
+    metadata = {
+        "conversation_id": str(row["conversation_id"]),
+        "transcript_id": str(row["transcript_id"]),
+        "emp_id": int(row["emp_id"]),
+        "call_type": str(row["call_type"]),
+    }
+
+    transcript_df = load_transcript(resolve_data_path(INDEX_PATH, str(row["transcript_path"])))
+    transcript_df["start_mmss"] = transcript_df["START_TIME_MS"].apply(ms_to_mmss)
+    transcript_df["end_mmss"] = transcript_df["END_TIME_MS"].apply(ms_to_mmss)
+
+    sel_enum, sel_ctx, sel_rubric = load_artifacts(metadata["call_type"])
+
+    c1, c2 = st.columns([1.2, 0.8])
+    with c1:
+        st.subheader("Transcript")
+        st.caption(f"{metadata['conversation_id']} | {metadata['transcript_id']} | emp {metadata['emp_id']} | {metadata['call_type']}")
+        st.dataframe(
+            transcript_df[["phrase_rank", "speaker", "start_mmss", "end_mmss", "START_TIME_MS", "END_TIME_MS", "text"]],
+            height=520,
+        )
+
+    with c2:
+        st.subheader("Metadata")
+        meta_tbl = pd.DataFrame([{"field": k, "value": v} for k, v in metadata.items()])
+        st.dataframe(meta_tbl, hide_index=True, use_container_width=True)
+
+        st.subheader("Call intent details")
+        st.write(sel_ctx.get("purpose", ""))
+        detailed = sel_ctx.get("detailed_intent_description", "")
+        if detailed:
+            st.write(detailed)
+
+        guidance = sel_ctx.get("guidance", []) or []
+        if guidance:
+            st.markdown("**Guidance**")
+            for g in guidance:
+                st.write(f"- {g}")
+
+    # Stage 1
+    if run_cls:
+        with st.spinner("Classifying per-segment activities..."):
+            cls_df = classify_call(transcript_df, sel_enum, sel_ctx, metadata)
+        st.session_state["qa_cls_df"] = cls_df
+
+    if "qa_cls_df" in st.session_state:
+        st.subheader("Per-segment activities")
+        st.dataframe(st.session_state["qa_cls_df"], height=240)
+
+    # Stage 2
+    if run_blocks and "qa_cls_df" in st.session_state:
+        blocks_df = build_activity_blocks(transcript_df, st.session_state["qa_cls_df"], sel_enum)
+        st.session_state["qa_blocks_df"] = blocks_df
+
+    if "qa_blocks_df" in st.session_state:
+        st.subheader("Activity blocks")
+        st.dataframe(st.session_state["qa_blocks_df"][["activity", "present", "duration_sec"]], height=260)
+        with st.expander("Show exchanges"):
+            st.dataframe(st.session_state["qa_blocks_df"][["activity", "exchange"]], height=400)
+
+    # Stage 3
+    if run_eval and "qa_blocks_df" in st.session_state:
+        with st.spinner("Evaluating activities..."):
+            eval_df = evaluate_blocks(st.session_state["qa_blocks_df"], sel_rubric, metadata)
+            eval_df["efficacy_score"] = eval_df["efficacy_score"].astype(float).round(1)
+            eval_df["efficacy_pct"] = eval_df["efficacy_score"].astype(str) + "%"
+        st.session_state["qa_eval_df"] = eval_df
+
+    if "qa_eval_df" in st.session_state:
+        st.subheader("Evaluation")
+        st.dataframe(
+            st.session_state["qa_eval_df"][
+                ["activity", "present", "duration_sec", "efficacy_pct", "detailed_observations", "tactical_feedback"]
+            ],
+            height=360,
+        )
+
+    # Stage 4
+    if run_report and "qa_eval_df" in st.session_state:
+        st.session_state["qa_activity_report"] = build_activity_report(st.session_state["qa_eval_df"])
+        st.session_state["qa_agent_summary"] = build_agent_coaching_summary(st.session_state["qa_eval_df"])
+
+    if "qa_activity_report" in st.session_state:
+        st.subheader("Reports")
+        st.dataframe(st.session_state["qa_activity_report"], height=240)
+        st.text(st.session_state["qa_agent_summary"])
+
+    # Stage 5
+    if run_narrative and "qa_eval_df" in st.session_state:
+        with st.spinner("Generating narrative..."):
+            narrative = generate_narrative(sel_enum, sel_rubric, st.session_state["qa_eval_df"], metadata)
+        st.session_state["qa_narrative"] = narrative
+
+    if "qa_narrative" in st.session_state:
+        st.subheader("Narrative insights")
+        st.json(st.session_state["qa_narrative"])
+
+
+# ============================================================
+# TAB 2 — NEW Batch intent mapping (your new Open/Close meaning)
+# ============================================================
+with tab2:
+    st.subheader("Intent Mapping (batch)")
+
+    cL, cR = st.columns([0.65, 0.35])
+
+    with cL:
+        st.markdown(
+            "- **Open-ended:** discover dataset-wide L1/L2 tree and map all transcripts\n"
+            "- **Close-ended:** upload final L1/L2 tree and map all transcripts to primary intent\n"
+        )
+
+    with cR:
+        mode = st.selectbox("Intent mode", ["Open-ended", "Close-ended"], key="batch_mode")
+        max_calls = st.number_input("Max transcripts to process", min_value=1, value=50, step=10, key="batch_max")
+        seed = st.number_input("Sampling seed", min_value=0, value=42, step=1, key="batch_seed")
+
+    # Select which transcripts to process: use index (all folders)
+    df_all = index_df.copy()
+    df_all["transcript_abs"] = df_all["transcript_path"].apply(lambda p: resolve_data_path(INDEX_PATH, str(p)))
+
+    # Sample / limit
+    random.seed(int(seed))
+    df_proc = df_all.sample(n=min(int(max_calls), len(df_all)), random_state=int(seed)) if len(df_all) else df_all
+
+    st.caption(f"Will process {len(df_proc):,} transcripts (from index across folders).")
+
+    uploaded_tree = None
+    intent_tree = None
+
+    if mode == "Close-ended":
+        up = st.file_uploader("Upload final intent tree (CSV/XLSX/JSON with L1/L2)", type=["csv", "xlsx", "xls", "json"])
+        if up is not None:
+            uploaded_tree = parse_uploaded_intent_tree(up.getvalue(), up.name)
+            st.success(f"Loaded intent tree: {len(uploaded_tree)} L1 categories.")
+            with st.expander("Preview uploaded tree"):
+                st.json(uploaded_tree)
+
+    discover_n = st.number_input("Open-ended discovery sample size", min_value=5, value=25, step=5, key="disc_n")
+
+    run_batch = st.button("Run batch mapping and generate Excel", key="run_batch")
+
+    if run_batch:
+        # --------------------------
+        # Step A: Determine intent tree
+        # --------------------------
+        if mode == "Open-ended":
+            st.info("Open-ended: discovering L1/L2 intent tree from samples...")
+            # take discovery sample
+            df_disc = df_proc.sample(n=min(int(discover_n), len(df_proc)), random_state=int(seed)).copy()
+            sample_texts = []
+            for _, row in df_disc.iterrows():
+                tdf = load_transcript(row["transcript_abs"])
+                sample_texts.append(transcript_to_one_cell(tdf))
+
+            with st.spinner("Discovering intent tree (LLM)..."):
+                intent_tree = discover_intent_tree(sample_texts)
+
+            st.success(f"Discovered intent tree with {len(intent_tree)} L1 categories.")
+            st.session_state["open_intent_tree"] = intent_tree
+            with st.expander("Discovered intent tree"):
+                st.json(intent_tree)
+
+        else:
+            if not uploaded_tree:
+                st.error("Close-ended requires uploading the final L1/L2 intent tree file first.")
+                st.stop()
+            intent_tree = uploaded_tree
+
+        # --------------------------
+        # Step B: Map all transcripts
+        # --------------------------
+        st.info("Mapping transcripts to (L1, L2, Sentiment) + AHT ...")
+        rows = []
+        prog = st.progress(0)
+        total = len(df_proc)
+
+        for i, (_, row) in enumerate(df_proc.iterrows(), start=1):
+            tdf = load_transcript(row["transcript_abs"])
+            text_one_cell = transcript_to_one_cell(tdf)
+            aht = compute_aht_seconds(tdf)
+
+            with st.spinner(f"Classifying transcript {i}/{total} ..."):
+                L1, L2, sent = classify_transcript_intent(
+                    transcript_text=text_one_cell,
+                    intent_tree=intent_tree,
+                    mode=mode.lower(),
+                )
+
+            rows.append(
+                {
+                    "S No.": i,
+                    "Transcript text in one cell": text_one_cell,
+                    "Total AHT": round(float(aht), 2),
+                    "L1": L1,
+                    "L2": L2,
+                    "Sentiment": sent,
+                }
+            )
+            prog.progress(int(i * 100 / total))
+
+        mappings_df = pd.DataFrame(rows)
+        st.session_state["batch_mappings_df"] = mappings_df
+
+        # --------------------------
+        # Step C: Build Excel
+        # --------------------------
+        include_freq = (mode == "Close-ended")
+        xlsx_bytes = build_mapping_excel(mappings_df, include_frequency_sheet=include_freq)
+        st.session_state["batch_xlsx"] = xlsx_bytes
+
+        st.success("Excel generated.")
+        st.dataframe(mappings_df[["S No.", "Total AHT", "L1", "L2", "Sentiment"]], height=360)
+
+        fname = "open_ended_intent_mapping.xlsx" if mode == "Open-ended" else "close_ended_intent_mapping.xlsx"
+        st.download_button(
+            "Download Excel",
+            data=xlsx_bytes,
+            file_name=fname,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
