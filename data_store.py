@@ -23,11 +23,7 @@ def load_index(index_path: str) -> pd.DataFrame:
     if index_path.lower().endswith(".parquet"):
         df = pd.read_parquet(index_path)
     else:
-        for enc in ("utf-8", "utf-8-sig", "cp1252", "latin1"):
-            try:
-                return pd.read_csv(transcript_path, encoding=enc)
-            except UnicodeDecodeError:
-                pass
+        df = pd.read_csv(index_path)
 
     req = {"conversation_id", "transcript_id", "emp_id", "call_type", "transcript_path"}
     missing = req - set(df.columns)
@@ -42,7 +38,11 @@ def load_transcript(transcript_path: str) -> pd.DataFrame:
     if transcript_path.lower().endswith(".parquet"):
         df = pd.read_parquet(transcript_path)
     else:
-        df = pd.read_csv(transcript_path)
+        for enc in ("utf-8", "utf-8-sig", "cp1252", "latin1"):
+            try:
+                return pd.read_csv(transcript_path, encoding=enc)
+            except UnicodeDecodeError:
+                pass
 
     req = {"phrase_rank", "speaker", "START_TIME_MS", "END_TIME_MS", "text"}
     missing = req - set(df.columns)
