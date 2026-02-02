@@ -28,7 +28,11 @@ st.set_page_config(page_title="Pathfinder", layout="wide")
 st.title("Pathfinder")
 
 INDEX_PATH = os.getenv("CALL_INDEX_PATH", "data/calls_index.csv")
-index_df = load_index(INDEX_PATH)
+try:
+    index_df = load_index(INDEX_PATH)
+except Exception as e:
+    st.error(f"Failed to load index at {INDEX_PATH}: {e}")
+    st.stop()
 
 tab1, tab2 = st.tabs(["Call Flow QA (single call)", "Intent Mapping (batch)"])
 
