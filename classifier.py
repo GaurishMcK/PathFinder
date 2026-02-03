@@ -76,10 +76,8 @@ def classify_call(
                         "properties": {
                             "phrase_rank": {"type": "integer"},
                             "activity": {"type": "string", "enum": enum},
-                            "change_flag": {"type": "boolean"},
-                            "confidence": {"type": "number"},
                         },
-                        "required": ["phrase_rank", "activity", "change_flag", "confidence"],
+                        "required": ["phrase_rank", "activity"],
                     },
                 },
             },
