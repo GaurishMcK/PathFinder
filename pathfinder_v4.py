@@ -79,8 +79,6 @@ def main():
     # ============================================================
     with tab1:
         st.markdown("### Call Flow QA")
-        st.caption("Pick a call, then run classification / consolidation / evaluation.")
-    
         with st.sidebar:
             st.markdown("## Controls")
             st.caption("Filter, select a call, then run actions.")
@@ -186,20 +184,7 @@ def main():
 
         sel_enum, sel_ctx, sel_rubric = load_artifacts(metadata["call_type"])
 
-        c1, c2 = st.columns([1.2, 0.8])
-        with c1:
-            st.subheader("Transcript")
-            st.caption(
-                f"{metadata['conversation_id']} | {metadata['transcript_id']} | "
-                f"emp {metadata['emp_id']} | {metadata['call_type']}"
-            )
-            st.dataframe(
-                transcript_df[
-                    ["phrase_rank", "speaker", "start_mmss", "end_mmss", "START_TIME_MS", "END_TIME_MS", "text"]
-                ],
-                height=520,
-            )
-
+        c2 = st.columns()
         with c2:
             st.subheader("Metadata")
             # Arrow-safe: force strings so mixed types can't crash pyarrow
