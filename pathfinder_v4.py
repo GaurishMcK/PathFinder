@@ -16,7 +16,7 @@ from intent_batch import (
     compute_aht_seconds,
     transcript_to_one_cell,
     discover_intent_tree,
-    classify_transcript_intent,
+    classify_transcripts_intent_bulk,
     parse_uploaded_intent_tree,
     build_mapping_excel,
 )
@@ -343,6 +343,9 @@ def main():
             # --------------------------
             st.info("Mapping transcripts to (L1, L2, Sentiment) + AHT ...")
             rows = []
+            texts = []
+            ahts = []
+            
             prog = st.progress(0)
             total = len(df_proc)
 
@@ -350,26 +353,51 @@ def main():
                 tdf = load_transcript(r["transcript_abs"])
                 text_one_cell = transcript_to_one_cell(tdf)
                 aht = compute_aht_seconds(tdf)
-
-                with st.spinner(f"Classifying transcript {i}/{total} ..."):
-                    L1, L2, sent = classify_transcript_intent(
-                        transcript_text=text_one_cell,
-                        intent_tree=intent_tree,
-                        mode=mode.lower(),
-                    )
-
+            
+                texts.append(text_one_cell)
+                ahts.append(round(float(aht), 2))
+            
                 rows.append(
                     {
                         "S No.": i,
                         "Transcript text in one cell": text_one_cell,
                         "Total AHT": round(float(aht), 2),
-                        "L1": L1,
-                        "L2": L2,
-                        "Sentiment": sent,
+                        # filled after LLM mapping
+                        "L1": "",
+                        "L2": "",
+                        "Sentiment": "",
                     }
                 )
-                prog.progress(int(i * 100 / total))
+                prog.progress(int(i * 100 / max(total, 1)))
 
+            batch_size = 6  # tune 4–10 depending on transcript length + model context
+            results_by_i = {}
+
+            with st.spinner(f"Classifying {total} transcripts in batches of {batch_size}..."):
+                for start in range(0, total, batch_size):
+                    batch_texts = texts[start : start + batch_size]
+                    batch_start_index = start + 1  # 1-based "S No."
+            
+                    batch_results = classify_transcripts_intent_bulk(
+                        transcripts_text=batch_texts,
+                        intent_tree=intent_tree,
+                        mode=mode.lower(),
+                        start_index=batch_start_index,
+                    )
+            
+                    for br in batch_results:
+                        results_by_i[int(br["i"])] = br
+            
+                    prog.progress(int(min(start + batch_size, total) * 100 / max(total, 1)))
+            
+            # 3) Fill rows with model output
+            for row in rows:
+                i = int(row["S No."])
+                br = results_by_i.get(i, {})
+                row["L1"] = br.get("L1", "")
+                row["L2"] = br.get("L2", "")
+                row["Sentiment"] = br.get("Sentiment", "")
+            
             mappings_df = pd.DataFrame(rows)
             st.session_state["batch_mappings_df"] = mappings_df
 
