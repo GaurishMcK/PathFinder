@@ -391,19 +391,8 @@ def main():
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-            
             st.session_state["batch_xlsx"] = xlsx_bytes
-            
-            st.success("Excel generated.")
             st.dataframe(mappings_df[["S No.", "Total AHT", "L1", "L2", "Sentiment"]], height=360)
-
-            if "batch_xlsx" in st.session_state:
-                st.download_button(
-                    "Download Excel",
-                    data=st.session_state["batch_xlsx"],
-                    file_name=fname,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
 
 # Optional: helps local runs like `python pathfinder_v4.py`, but Streamlit won't rely on this.
 if __name__ == "__main__":
