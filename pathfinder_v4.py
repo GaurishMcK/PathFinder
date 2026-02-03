@@ -62,15 +62,6 @@ def main():
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        """
-        <div class="pf-header">
-          <p class="pf-title">Pathfinder</p>
-          <p class="pf-subtitle">Call QA + Intent mapping — clean outputs, fewer rabbit holes.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
     
     st.title("Pathfinder")
 
