@@ -1,29 +1,40 @@
 import pandas as pd
 
 
-def build_activity_blocks(transcript_df: pd.DataFrame, cls_df: pd.DataFrame, enum: list[str]) -> pd.DataFrame:
+def build_activity_blocks(transcript_df: pd.DataFrame, cls_df: pd.DataFrame, sel_enum=None) -> pd.DataFrame:
+    # Merge classification into transcript
     joined = transcript_df.merge(cls_df[["phrase_rank", "activity"]], on="phrase_rank", how="left")
+
+    # Compute duration_sec if not already present
+    if "duration_sec" not in joined.columns:
+        if {"START_TIME_MS", "END_TIME_MS"}.issubset(joined.columns):
+            joined["duration_sec"] = (joined["END_TIME_MS"] - joined["START_TIME_MS"]) / 1000.0
+        else:
+            # Fallback: if timings are missing, assume 0 duration
+            joined["duration_sec"] = 0.0
+
     joined["speaker_text"] = "[" + joined["speaker"].astype(str) + "]: " + joined["text"].astype(str)
 
-    blocks = joined.groupby("activity", dropna=False).agg(duration_sec=("duration_sec", "sum")).reset_index()
+    # Aggregate blocks by activity
+    blocks = (
+        joined.groupby("activity", dropna=False)
+        .agg(
+            duration_sec=("duration_sec", "sum"),
+            present=("phrase_rank", "size"),
+        )
+        .reset_index()
+    )
 
+    # Collect exchanges per activity
     exchanges = (
         joined.groupby("activity", dropna=False)["speaker_text"]
-        .apply(lambda x: "\n".join(x))
+        .apply(lambda s: "\n".join(s.tolist()))
         .reset_index(name="exchange")
     )
 
-    observed = blocks.merge(exchanges, on="activity", how="left")
+    out = blocks.merge(exchanges, on="activity", how="left")
 
-    # Keep missing activities visible, in enum order
-    full = pd.DataFrame({"activity": enum})
-    out = full.merge(observed, on="activity", how="left")
-
-    out["present"] = out["duration_sec"].notna()
-    out["duration_sec"] = out["duration_sec"].fillna(0.0).astype(float)
-    out["exchange"] = out["exchange"].fillna("").astype(str)
-
-    out["activity_order"] = pd.Categorical(out["activity"], categories=enum, ordered=True)
-    out = out.sort_values("activity_order").drop(columns=["activity_order"]).reset_index(drop=True)
+    # present should be boolean in your UI later
+    out["present"] = out["present"] > 0
 
     return out
