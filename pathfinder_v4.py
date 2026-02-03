@@ -285,9 +285,13 @@ def main():
 
         st.markdown("<div class='pf-card'>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([0.42, 0.28, 0.30])
-        mode = c1.selectbox("Intent mode", ["Open-ended", "Close-ended"], key="batch_mode")
-        max_calls = c2.number_input("Max transcripts", min_value=1, value=50, step=10, key="batch_max")
-        seed = c3.number_input("Sampling seed", min_value=0, value=42, step=1, key="batch_seed")
+
+        mode = st.selectbox("Intent mode", ["Open-ended", "Close-ended"], key="im_mode")
+        max_calls = st.number_input("Max transcripts to process", min_value=1, value=50, step=10, key="im_max")
+        seed = st.number_input("Sampling seed", min_value=0, value=42, step=1, key="im_seed")
+        discover_n = st.number_input("Open-ended discovery sample size", min_value=5, value=25, step=5, key="im_disc_n")
+        run_batch = st.button("Run batch mapping and generate Excel", key="im_run_batch")
+
         st.markdown("</div>", unsafe_allow_html=True)
 
         
