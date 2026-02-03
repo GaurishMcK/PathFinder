@@ -246,6 +246,130 @@ def classify_transcript_intent(
 
     return L1, L2, Sent
 
+# ---------------------------
+# Classify MANY transcripts (batched)
+# ---------------------------
+
+def _build_bulk_mapping_messages(
+    batch_payload: List[dict],
+    intent_tree: Dict[str, List[str]],
+    mode: str,
+) -> List[dict]:
+    """Build one prompt that classifies multiple transcripts in one shot."""
+    system = {
+        "role": "system",
+        "content": (
+            "You are an expert call-center intent classifier. "
+            "Map EACH transcript to exactly one primary intent at two levels (L1, L2) and sentiment. "
+            "Return strictly valid JSON."
+        ),
+    }
+
+    user = {
+        "role": "user",
+        "content": (
+            "<RULES>\n"
+            "1) Assign ONLY ONE primary intent per transcript (even if multiple are present).\n"
+            "2) L1 must be one of the provided L1 values.\n"
+            "3) L2 must be one of the provided L2 values under the chosen L1.\n"
+            "4) Sentiment must be exactly: Positive, Negative, or Neutral.\n"
+            "5) Return exactly one result per input item, preserving item i.\n"
+            "</RULES>\n\n"
+            f"<MODE>\n{mode}\n</MODE>\n\n"
+            "<INTENT_TREE>\n"
+            f"{json.dumps(intent_tree)}\n"
+            "</INTENT_TREE>\n\n"
+            "<BATCH>\n"
+            f"{json.dumps(batch_payload)}\n"
+            "</BATCH>\n\n"
+            "<OUTPUT>\n"
+            "Return JSON:\n"
+            "{\n"
+            '  "results": [\n'
+            '    {"i": 1, "L1": "string", "L2": "string", "Sentiment": "Positive|Negative|Neutral"},\n'
+            "    ...\n"
+            "  ]\n"
+            "}\n"
+            "</OUTPUT>"
+        ),
+    }
+    return [system, user]
+
+
+def classify_transcripts_intent_bulk(
+    transcripts_text: List[str],
+    intent_tree: Dict[str, List[str]],
+    mode: str,
+    start_index: int = 1,
+) -> List[dict]:
+    """Classify a batch of transcripts in ONE model call."""
+    client, model = get_openai()
+
+    l1_enum = sorted(intent_tree.keys())
+    l2_enum = sorted({l2 for l2s in intent_tree.values() for l2 in l2s} | {"Other"})
+
+    batch_payload: List[dict] = []
+    for j, t in enumerate(transcripts_text, start=start_index):
+        # smaller per-transcript cap because we're batching
+        batch_payload.append(
+            {"i": int(j), "transcript": compact_text_for_llm(t, max_chars=4500)}
+        )
+
+    schema = {
+        "name": "intent_mapping_bulk",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "i": {"type": "integer"},
+                            "L1": {"type": "string", "enum": l1_enum},
+                            "L2": {"type": "string", "enum": l2_enum},
+                            "Sentiment": {"type": "string", "enum": SENTIMENT_ENUM},
+                        },
+                        "required": ["i", "L1", "L2", "Sentiment"],
+                    },
+                }
+            },
+            "required": ["results"],
+        },
+    }
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=_build_bulk_mapping_messages(batch_payload, intent_tree, mode),
+        response_format={"type": "json_schema", "json_schema": schema},
+    )
+    parsed = json.loads(resp.choices[0].message.content)
+
+    out: List[dict] = []
+    for r in parsed.get("results", []):
+        i = int(r.get("i", 0))
+        L1 = str(r.get("L1", "")).strip()
+        L2 = str(r.get("L2", "")).strip()
+        Sent = str(r.get("Sentiment", "")).strip()
+
+        if L1 not in intent_tree:
+            L1 = l1_enum[0] if l1_enum else "Other"
+
+        if L2 not in intent_tree.get(L1, []):
+            if "Other" in intent_tree.get(L1, []):
+                L2 = "Other"
+
+        if Sent not in SENTIMENT_ENUM:
+            Sent = "Neutral"
+
+        out.append({"i": i, "L1": L1, "L2": L2, "Sentiment": Sent})
+
+    out.sort(key=lambda x: x["i"])
+    return out
+
 
 # ---------------------------
 # Intent tree upload parsing
