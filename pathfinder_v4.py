@@ -184,7 +184,7 @@ def main():
 
         sel_enum, sel_ctx, sel_rubric = load_artifacts(metadata["call_type"])
 
-        c2 = st.columns()
+        c2 = st.columns(1)
         with c2:
             st.subheader("Metadata")
             # Arrow-safe: force strings so mixed types can't crash pyarrow
