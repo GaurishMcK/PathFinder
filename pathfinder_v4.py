@@ -189,7 +189,7 @@ def main():
         meta_tbl = pd.DataFrame([{"field": k, "value": str(v)} for k, v in metadata.items()])
         st.dataframe(meta_tbl, hide_index=True, width="stretch")
 
-        st.subheader("Call intent details")
+        st.subheader("Call Summary")
         st.write(sel_ctx.get("purpose", ""))
         detailed = sel_ctx.get("detailed_intent_description", "")
         if detailed:
