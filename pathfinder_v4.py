@@ -27,6 +27,51 @@ def main():
     # App shell
     # -------------------------
     st.set_page_config(page_title="Pathfinder", layout="wide")
+
+    st.markdown(
+        """
+        <style>
+          .pf-header {
+            padding: 18px 20px;
+            border-radius: 16px;
+            background: linear-gradient(90deg, rgba(37,99,235,0.10), rgba(37,99,235,0.03));
+            border: 1px solid rgba(37,99,235,0.15);
+            margin-bottom: 14px;
+          }
+          .pf-title { font-size: 26px; font-weight: 750; margin: 0; }
+          .pf-subtitle { margin: 4px 0 0 0; color: rgba(15, 23, 42, 0.70); }
+          .pf-card {
+            border-radius: 16px;
+            border: 1px solid rgba(15,23,42,0.10);
+            background: rgba(255,255,255,0.70);
+            padding: 14px 14px 6px 14px;
+          }
+          .pf-chip {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(15,23,42,0.12);
+            background: rgba(15,23,42,0.03);
+            font-size: 12px;
+            margin-right: 8px;
+          }
+          /* tighten some default spacing */
+          div.block-container { padding-top: 1.4rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="pf-header">
+          <p class="pf-title">Pathfinder</p>
+          <p class="pf-subtitle">Call QA + Intent mapping — clean outputs, fewer rabbit holes.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    
     st.title("Pathfinder")
 
     INDEX_PATH = os.getenv("CALL_INDEX_PATH", "data/calls_index.csv")
