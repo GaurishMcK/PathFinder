@@ -184,24 +184,22 @@ def main():
 
         sel_enum, sel_ctx, sel_rubric = load_artifacts(metadata["call_type"])
 
-        c2 = st.columns(1)
-        with c2:
-            st.subheader("Metadata")
-            # Arrow-safe: force strings so mixed types can't crash pyarrow
-            meta_tbl = pd.DataFrame([{"field": k, "value": str(v)} for k, v in metadata.items()])
-            st.dataframe(meta_tbl, hide_index=True, width="stretch")
+        st.subheader("Metadata")
+        # Arrow-safe: force strings so mixed types can't crash pyarrow
+        meta_tbl = pd.DataFrame([{"field": k, "value": str(v)} for k, v in metadata.items()])
+        st.dataframe(meta_tbl, hide_index=True, width="stretch")
 
-            st.subheader("Call intent details")
-            st.write(sel_ctx.get("purpose", ""))
-            detailed = sel_ctx.get("detailed_intent_description", "")
-            if detailed:
-                st.write(detailed)
+        st.subheader("Call intent details")
+        st.write(sel_ctx.get("purpose", ""))
+        detailed = sel_ctx.get("detailed_intent_description", "")
+        if detailed:
+            st.write(detailed)
 
-            guidance = sel_ctx.get("guidance", []) or []
-            if guidance:
-                st.markdown("**Guidance**")
-                for g in guidance:
-                    st.write(f"- {g}")
+        guidance = sel_ctx.get("guidance", []) or []
+        if guidance:
+            st.markdown("**Guidance**")
+            for g in guidance:
+                st.write(f"- {g}")
 
         # Stage 1
         if run_cls:
