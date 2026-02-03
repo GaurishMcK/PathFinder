@@ -264,16 +264,9 @@ def main():
     # ============================================================
     with tab2:
         st.markdown("### Intent Mapping (batch)")
-        st.caption("Run dataset-wide mapping and export results to Excel.")
 
         st.markdown("<div class='pf-card'>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([0.42, 0.28, 0.30])
-
-        mode = st.selectbox("Intent mode", ["Open-ended", "Close-ended"], key="im_mode")
-        max_calls = st.number_input("Max transcripts to process", min_value=1, value=50, step=10, key="im_max")
-        seed = st.number_input("Sampling seed", min_value=0, value=42, step=1, key="im_seed")
-        discover_n = st.number_input("Open-ended discovery sample size", min_value=5, value=25, step=5, key="im_disc_n")
-        run_batch = st.button("Run batch mapping and generate Excel", key="im_run_batch")
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -288,9 +281,9 @@ def main():
 
         with cR:
             mode = st.selectbox("Intent mode", ["Open-ended", "Close-ended"], key="batch_mode")
-            max_calls = st.number_input("Max transcripts to process", min_value=1, value=50, step=10, key="batch_max")
-            seed = st.number_input("Sampling seed", min_value=0, value=42, step=1, key="batch_seed")
-
+            max_calls = st.number_input("Max transcripts to process", min_value=1, value=50, step=10, key="im_max")
+            seed = st.number_input("Sampling seed", min_value=0, value=42, step=1, key="im_seed")
+            
         # Select which transcripts to process: use index (all folders)
         df_all = index_df.copy()
         df_all["transcript_abs"] = df_all["transcript_path"].apply(lambda p: resolve_data_path(INDEX_PATH, str(p)))
@@ -314,10 +307,8 @@ def main():
                 with st.expander("Preview uploaded tree"):
                     st.json(uploaded_tree)
 
-        discover_n = st.number_input(
-            "Open-ended discovery sample size", min_value=5, value=25, step=5, key="disc_n"
-        )
-
+        discover_n = st.number_input("Open-ended discovery sample size", min_value=5, value=25, step=5, key="im_disc_n")
+        
         run_batch = st.button("Run batch mapping and generate Excel", key="run_batch")
 
         if run_batch:
