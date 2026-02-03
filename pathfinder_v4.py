@@ -87,18 +87,26 @@ def main():
     # TAB 1 — Existing single-call QA (unchanged)
     # ============================================================
     with tab1:
+        st.markdown("### Call Flow QA")
+        st.caption("Pick a call, then run classification / consolidation / evaluation.")
+    
         with st.sidebar:
-            st.header("Single-call QA")
-
-            call_types = sorted(index_df["call_type"].dropna().unique().tolist())
-            call_type_filter = st.selectbox("Call intent", call_types, key="qa_call_type")
-
-            emp_filter = st.text_input("Agent emp_id (optional)", "", key="qa_emp")
-            search = st.text_input("Search (conversation_id / transcript_id)", "", key="qa_search")
-
+            st.markdown("## Controls")
+            st.caption("Filter, select a call, then run actions.")
+    
+            with st.form("qa_filters", border=False):
+                call_types = sorted(index_df["call_type"].dropna().unique().tolist())
+                call_type_filter = st.selectbox("Call intent", call_types, key="qa_call_type")
+    
+                cA, cB = st.columns(2)
+                emp_filter = cA.text_input("Agent emp_id", "", key="qa_emp", placeholder="e.g., 12345")
+                search = cB.text_input("Search", "", key="qa_search", placeholder="conversation/transcript id")
+    
+                submitted = st.form_submit_button("Apply filters")
+    
             fdf = index_df.copy()
             fdf = fdf[fdf["call_type"] == call_type_filter]
-
+    
             if emp_filter.strip():
                 try:
                     fdf = fdf[fdf["emp_id"] == int(emp_filter.strip())]
@@ -110,13 +118,13 @@ def main():
                     fdf["conversation_id"].astype(str).str.lower().str.contains(s)
                     | fdf["transcript_id"].astype(str).str.lower().str.contains(s)
                 ]
-
-            st.caption(f"{len(fdf):,} calls match filters")
-
+    
+            st.markdown(f"<span class='pf-chip'>Matches: <b>{len(fdf):,}</b></span>", unsafe_allow_html=True)
+    
             if len(fdf) == 0:
-                st.info("No calls match your filters.")
+                st.info("No calls match the current filters.")
                 st.stop()
-
+    
             fdf = fdf.copy()
             fdf["label"] = (
                 fdf["conversation_id"].astype(str)
@@ -127,13 +135,27 @@ def main():
                 + " | "
                 + fdf["call_type"].astype(str)
             )
-            selected = st.selectbox("Call", fdf["label"].tolist()[:5000], key="qa_selected")
-
-            run_cls = st.button("1) Get activities", key="qa_run_cls")
-            run_blocks = st.button("2) Consolidate activities", key="qa_run_blocks")
-            run_eval = st.button("3) Evaluate call", key="qa_run_eval")
-            run_report = st.button("4) Create reports", key="qa_run_report")
-            run_narrative = st.button("5) Generate narrative (LLM)", key="qa_run_narr")
+    
+            selected = st.selectbox("Select call", fdf["label"].tolist()[:5000], key="qa_selected")
+    
+            st.divider()
+    
+            # Primary workflow: one “Run QA” button, advanced controls tucked away
+            run_primary = st.button("Run QA pipeline (Activities → Blocks → Evaluation)", type="primary")
+    
+            with st.expander("Advanced actions"):
+                run_cls = st.button("1) Get activities", key="qa_run_cls")
+                run_blocks = st.button("2) Consolidate activities", key="qa_run_blocks")
+                run_eval = st.button("3) Evaluate call", key="qa_run_eval")
+                run_report = st.button("4) Create reports", key="qa_run_report")
+                run_narrative = st.button("5) Generate narrative (LLM)", key="qa_run_narr")
+    
+            # if primary clicked, trigger the stages in sequence
+            if run_primary:
+                run_cls, run_blocks, run_eval = True, True, True
+                run_report = True
+                # keep narrative separate (optional) – or set True if you want
+                run_narrative = False
 
         # Selected row
         row = fdf.loc[fdf["label"] == selected].iloc[0].to_dict()
@@ -144,10 +166,32 @@ def main():
             "call_type": str(row["call_type"]),
         }
 
+        st.markdown(
+            f"""
+            <div class="pf-card">
+              <span class="pf-chip"><b>Conversation</b>: {metadata['conversation_id']}</span>
+              <span class="pf-chip"><b>Transcript</b>: {metadata['transcript_id']}</span>
+              <span class="pf-chip"><b>Agent</b>: {metadata['emp_id']}</span>
+              <span class="pf-chip"><b>Intent</b>: {metadata['call_type']}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        
+        st.write("")
+
         # Load transcript
         transcript_df = load_transcript(resolve_data_path(INDEX_PATH, str(row["transcript_path"])))
         transcript_df["start_mmss"] = transcript_df["START_TIME_MS"].apply(ms_to_mmss)
         transcript_df["end_mmss"] = transcript_df["END_TIME_MS"].apply(ms_to_mmss)
+
+        st.dataframe(
+            transcript_df[["phrase_rank", "speaker", "start_mmss", "end_mmss", "text"]],
+            height=520,
+            width="stretch",
+            hide_index=True,
+        )
+
 
         sel_enum, sel_ctx, sel_rubric = load_artifacts(metadata["call_type"])
 
@@ -245,8 +289,17 @@ def main():
     # TAB 2 — Batch intent mapping
     # ============================================================
     with tab2:
-        st.subheader("Intent Mapping (batch)")
+        st.markdown("### Intent Mapping (batch)")
+        st.caption("Run dataset-wide mapping and export results to Excel.")
 
+        st.markdown("<div class='pf-card'>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([0.42, 0.28, 0.30])
+        mode = c1.selectbox("Intent mode", ["Open-ended", "Close-ended"], key="batch_mode")
+        max_calls = c2.number_input("Max transcripts", min_value=1, value=50, step=10, key="batch_max")
+        seed = c3.number_input("Sampling seed", min_value=0, value=42, step=1, key="batch_seed")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        
         cL, cR = st.columns([0.65, 0.35])
 
         with cL:
@@ -356,6 +409,18 @@ def main():
             # --------------------------
             include_freq = (mode == "Close-ended")
             xlsx_bytes = build_mapping_excel(mappings_df, include_frequency_sheet=include_freq)
+
+            st.markdown("<div class='pf-card'>", unsafe_allow_html=True)
+            st.success("Excel generated.")
+            st.download_button(
+                "Download Excel",
+                data=xlsx_bytes,
+                file_name=fname,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            
             st.session_state["batch_xlsx"] = xlsx_bytes
 
             st.success("Excel generated.")
