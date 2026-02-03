@@ -379,6 +379,8 @@ def main():
             include_freq = (mode == "Close-ended")
             xlsx_bytes = build_mapping_excel(mappings_df, include_frequency_sheet=include_freq)
 
+            fname = "open_ended_intent_mapping.xlsx" if mode == "Open-ended" else "close_ended_intent_mapping.xlsx"
+            
             st.markdown("<div class='pf-card'>", unsafe_allow_html=True)
             st.success("Excel generated.")
             st.download_button(
@@ -391,11 +393,10 @@ def main():
 
             
             st.session_state["batch_xlsx"] = xlsx_bytes
-
+            
             st.success("Excel generated.")
             st.dataframe(mappings_df[["S No.", "Total AHT", "L1", "L2", "Sentiment"]], height=360)
 
-            fname = "open_ended_intent_mapping.xlsx" if mode == "Open-ended" else "close_ended_intent_mapping.xlsx"
             if "batch_xlsx" in st.session_state:
                 st.download_button(
                     "Download Excel",
